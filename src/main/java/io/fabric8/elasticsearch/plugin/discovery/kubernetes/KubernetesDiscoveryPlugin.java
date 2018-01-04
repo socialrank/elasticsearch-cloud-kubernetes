@@ -21,11 +21,16 @@ import io.fabric8.elasticsearch.discovery.kubernetes.KubernetesUnicastHostsProvi
 import org.apache.logging.log4j.Logger;
 import org.apache.lucene.util.SetOnce;
 import org.elasticsearch.SpecialPermission;
-import org.elasticsearch.cluster.service.ClusterService;
+import org.elasticsearch.cluster.ClusterState;
+import org.elasticsearch.cluster.node.DiscoveryNode;
+import org.elasticsearch.cluster.routing.allocation.AllocationService;
+import org.elasticsearch.cluster.service.ClusterApplier;
+import org.elasticsearch.cluster.service.MasterService;
+import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
 import org.elasticsearch.common.logging.DeprecationLogger;
 import org.elasticsearch.common.logging.Loggers;
-import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
 import org.elasticsearch.common.network.NetworkService;
+import org.elasticsearch.common.settings.ClusterSettings;
 import org.elasticsearch.common.settings.Setting;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.discovery.Discovery;
@@ -37,10 +42,8 @@ import org.elasticsearch.plugins.Plugin;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.transport.TransportService;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 
 
@@ -66,11 +69,12 @@ public class KubernetesDiscoveryPlugin extends Plugin implements DiscoveryPlugin
   }
 
   @Override
-  public Map<String, Supplier<Discovery>> getDiscoveryTypes(ThreadPool threadPool, TransportService transportService,
-                                                            NamedWriteableRegistry namedWriteableRegistry, ClusterService clusterService, UnicastHostsProvider hostsProvider) {
-    // this is for backcompat with pre 5.1, where users would set discovery.type to use ec2 hosts provider
-    return Collections.singletonMap(KUBERNETES, () ->
-      new ZenDiscovery(settings, threadPool, transportService, namedWriteableRegistry, clusterService, hostsProvider));
+  public Map<String, Supplier<Discovery>> getDiscoveryTypes(ThreadPool threadPool, TransportService transportService, NamedWriteableRegistry namedWriteableRegistry, MasterService masterService, ClusterApplier clusterApplier, ClusterSettings clusterSettings, UnicastHostsProvider hostsProvider, AllocationService allocationService) {
+    return Collections.singletonMap(KUBERNETES, () -> {
+      ArrayList<BiConsumer<DiscoveryNode, ClusterState>> onJoinValidators = new ArrayList<>();
+      onJoinValidators.add(this.getJoinValidator());
+      return new ZenDiscovery(settings, threadPool, transportService, namedWriteableRegistry, masterService, clusterApplier, clusterSettings, hostsProvider, allocationService, onJoinValidators);
+    });
   }
 
   @Override
